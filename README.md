@@ -66,7 +66,7 @@
 * Расшифровать строку
 * Проверить соответствие с заданной строкой, если совпадают – вывести ~~флаг~~ важную информацию
 
-#### Взлом:
+#### Исследование:
 
 >Приватный ключ дан почти в открытом виде, зашифруем с помощью него требуемую строку, затем подключимся к серверу на порту :51515, нас попросят ввести hex, отправим шифротекст, в ответ прилетит зашифрованная информация. С помощью скрипта и коюча ее расшифруем, получим сообщение с данными для входа во внутреннюю сеть
 
@@ -93,7 +93,7 @@
 
 Это бинарь на  Golang. Let’s try to connect using clientScript.py. The server doesn’t seem to respond to our messages, which means we have to reverse the binary.
 
-Let’s use IDA Free 7.0. The functions with the code start with main_:
+Используем IDA Free 7.0. Основной код  начинается с main_:
 
 func	description
 main.main	init function. Starts the server
@@ -105,11 +105,13 @@ main.checkForExistence	checks if the user already exists
 main.createMd5Password	returns random md5 password string
 main.asyncHandleConnections	handles connections
 main.readAndEncode	utility function
-(See img1.png) in main.main os.Setenv is called with the arguments ("ADMIN_PASS", "de4ea1a59bb6df9d2f6ddc61cc28ce29"). This is clearly the admin’s password. The envvar is then referenced in main.RedisCreateUsers, which puts admin:ADMIN_PASS into redis db.
+![kts](https://user-images.githubusercontent.com/67109334/110940047-5a8c6880-8347-11eb-9145-a3bff40562fa.png)
+in main.main os.Setenv is called with the arguments ("ADMIN_PASS", "de4ea1a59bb6df9d2f6ddc61cc28ce29"). This is clearly the admin’s password. The envvar is then referenced in main.RedisCreateUsers, which puts admin:ADMIN_PASS into redis db.
 
 Теперь мы можем.
 
-(see img2.png) main.asyncHandleConnections is a big function, but it is quite easy to understand if you find all the strings used in it, which are:
+![kts](https://user-images.githubusercontent.com/67109334/110940183-8dcef780-8347-11eb-80f0-e22d9b207303.png)
+main.asyncHandleConnections is a big function, but it is quite easy to understand if you find all the strings used in it, which are:
 
 ^/register [0-9A-Za-z]{3,8}
 /showall
@@ -136,12 +138,11 @@ from base64 import b64decode
 
 with open("screeen.jpeg", "wb") as f:
     f.write(b64decode(data))
-(See img3.png) After running the script we get an image with the instrunction on how to connect to the internal network.
-![kts](https://user-images.githubusercontent.com/67109334/110940047-5a8c6880-8347-11eb-9145-a3bff40562fa.png)
-
-![kts](https://user-images.githubusercontent.com/67109334/110940183-8dcef780-8347-11eb-80f0-e22d9b207303.png)
-
 ![kts](https://user-images.githubusercontent.com/67109334/110940251-a50de500-8347-11eb-8f00-64d13faa5db7.png)
+After running the script we get an image with the instrunction on how to connect to the internal network.
+
+
+
 
 ### SQLi №2
 В ходе тестирования на проникновение «Веселая ферма» смоделировала возможные действия злоумышленника на сайте телецентра “Sirius Game” и выявила возможность проведения атаки типа SQLi. Данная уязвимость даёт злоумышленнику возможность смены пароля любого пользователя, в том числе администратора.
