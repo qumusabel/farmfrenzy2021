@@ -26,7 +26,7 @@
 224c224,226
 &lt;     bad_words = ['whoami', 'id', 'python', 'php', 'bash'] #hacker shouldn't pass
 ---
-&gt;     # Only allow options to `uptime`: 
+&gt;     # Разрешить только опции к команде uptime: 
 &gt;     good_words = ['-p', '--pretty', '-h', '--help', '-s', '--since', '-V', '--version']
 &gt; 
 227,228c229,230
@@ -70,7 +70,7 @@ In future: enforce password policies
 
 >Приватный ключ дан почти в открытом виде, зашифруем с помощью него требуемую строку, затем подключимся к серверу на порту :51515, нас попросят ввести hex, отправим шифротекст, в ответ прилетит зашифрованная информация. С помощью скрипта и коюча ее расшифруем, получим сообщение с данными для входа во внутреннюю сеть
 
-![kts](https://user-images.githubusercontent.com/67109334/110935184-23668900-8340-11eb-9bba-bb4c503712b1.png)
+![kts](https://user-images.githubusercontent.com/67109334/110939654-cc17e700-8346-11eb-896b-367f495ac99b.png)
 
 ### SQLi №1
 
