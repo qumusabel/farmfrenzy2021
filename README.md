@@ -12,13 +12,20 @@
 Сначала было произведено сканирование портов, найдены следующие:
 ```
 PORT STATE SERVICE
-80/tcp | open |
+80/tcp | open | http
 81/tcp | open | 
 5000/tcp | open |
 8027/tcp | open|
 51515/tcp | open |
 
 ```
+```
+ 81 | HTTP | Хостит обфусцированный файл run.py
+ 5000 | HTTP | Веб-приложение, сайт провайдера (?) NetGen
+ 8037 | UDP? | Открыт, но не отвечает 
+ 51515 | TCP | Какой-то сервис, просит пароль
+ ```
+ 
 На сервисе NetGen есть страницы ```/register```, ```/login```, ```/logout``` Регистрируем пользователя, доступна функция создания тикетов. В параметре POST title обнаружена SSTI (предположительно, Jinja2) Некоторые ключевые слова фильтруются, причем необязательно в составе пейлоада (например, config)
 
 Далее нами было получено SSTI RCE в сервисе на :5000
@@ -177,6 +184,61 @@ with open("screeen.jpeg", "wb") as f:
 &lt;         c.execute('UPDATE staff set password=(?) where username="' + session[0] + '"', (password, ))                                                          
 ---
 &gt;         c.execute('UPDATE staff set password=(?) where username=(?)', (password, session[0])) 
+```
+
+###  Доступ к приватной информации
+
+Мы можем публиковать новости без авторизации.
+
+```
+@app.route("/import_news", methods=["GET", "POST"])
+def import_news_route():
+    try:
+        username = get_user_info(request.cookies.get('session'))[1]
+    except:
+        return redirect("/login")
+import news without auth
+```
+Пример пэйлоада:
+
+```
+POST /add_news HTTP/1.1
+Host: 127.0.0.1:5000
+Content-Length: 22
+Cache-Control: max-age=0
+Upgrade-Insecure-Requests: 1
+Origin: http://127.0.0.1:5000
+Content-Type: application/x-www-form-urlencoded
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: navigate
+Sec-Fetch-User: ?1
+Sec-Fetch-Dest: document
+Referer: http://127.0.0.1:5000/add_news
+Accept-Encoding: gzip, deflate
+Accept-Language: en-US,en;q=0.9
+Connection: close
+```
+
+```title=123&content=3211```
+
+Закрыл уязвимость добавлением проверки на авторизацию
+
+```
+@app.route("/add_news", methods=["GET", "POST"])
+def add_news_route():
+    try:
+        session = 1 if get_user_info(request.cookies.get('session')) else 0
+    except:
+        session = 0
+    if request.method == "POST":
+        if get_user_info(request.cookies.get('session')):
+            title = request.form.get('title')
+            content = request.form.get('content')
+            add_news(title, content)
+        else: abort(403)
+    return render_template('add_news.html', session=session)
 ```
 
 ## Патчи
