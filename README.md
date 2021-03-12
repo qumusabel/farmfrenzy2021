@@ -14,13 +14,13 @@
 На сервисе NetGen есть страницы /register, /login, /logout Регистрируем пользователя, доступна функция создания тикетов. В параметре POST title обнаружена SSTI (предположительно, Jinja2) Некоторые ключевые слова фильтруются, причем необязательно в составе пейлоада (например, config)
 
 Далее нами было получено SSTI RCE в сервисе на :5000
-
+![kts](https://user-images.githubusercontent.com/67109334/110940347-cf5fa280-8347-11eb-917d-432bcbc26336.png)
 
 
 ### server.py:224 status_route() Possible RCE, weak filter
 
 #### Решение:
->Use whitelist instead of blacklist, only allow options to uptime
+>Использовать whitelist вместо blacklist, разрешать только опции к команде uptime
 ```
 └─$ diff ../app/server.py server.py                                                           
 224c224,226
@@ -39,12 +39,12 @@
 ```
 
 * Создать пользователя " || "admin : passwd
-* Зайти за " || "admin : admin <— слабая политика паролей!
-* Go to /dialog?u=? -> dialog leakage
-* Change " || "admin‘s passwd, now admin‘s password is changed, too
-* Proposed patch: use proper DB access methods w/escaping
+* Войти как || "admin : admin <— слабая парольная политика!
+* Перейти на /dialog?u=? -> слив диалога
+* Если поменять " || "admin‘s passwd, то поменяется пароль самого админа
+* Патч: использовать правильные методы к базе данных с экранированием, использовать экранирование
 
-In future: enforce password policies
+Улучшить парольные политики
 
 ### Взлом run.py на хосте :81
 
@@ -90,7 +90,58 @@ In future: enforce password policies
 ```
 
 ### :80 server
----------------
+
+Это бинарь на  Golang. Let’s try to connect using clientScript.py. The server doesn’t seem to respond to our messages, which means we have to reverse the binary.
+
+Let’s use IDA Free 7.0. The functions with the code start with main_:
+
+func	description
+main.main	init function. Starts the server
+main.server	server func
+main.listAllKeys	lists all keys in the redis db
+main.RedisTestConnection	puts test:connection into db, then gets it
+main.RedisCreateUsers	creates admin user entry in the db
+main.checkForExistence	checks if the user already exists
+main.createMd5Password	returns random md5 password string
+main.asyncHandleConnections	handles connections
+main.readAndEncode	utility function
+(See img1.png) in main.main os.Setenv is called with the arguments ("ADMIN_PASS", "de4ea1a59bb6df9d2f6ddc61cc28ce29"). This is clearly the admin’s password. The envvar is then referenced in main.RedisCreateUsers, which puts admin:ADMIN_PASS into redis db.
+
+Теперь мы можем.
+
+(see img2.png) main.asyncHandleConnections is a big function, but it is quite easy to understand if you find all the strings used in it, which are:
+
+^/register [0-9A-Za-z]{3,8}
+/showall
+/login
+/logout
+/get_screen
+The logic for detecting the last two is not straightforward, so we just had to deduce.
+
+Let’s try
+
+/login admin de4ea1a59bb6df9d2f6ddc61cc28ce29
+/get_screen
+A very long base64 string is printed. Copying it from terminal doesn’t quite work, so let’s automate the interaction:
+
+from pwn import remote
+
+r = remote("195.19.98.103", 8037)
+r.sendline("/login admin de4ea1a59bb6df9d2f6ddc61cc28ce29")
+r.recv()
+r.sendline("/get_screen")
+
+data = r.recvuntil("==") # sadly no \n
+from base64 import b64decode
+
+with open("screeen.jpeg", "wb") as f:
+    f.write(b64decode(data))
+(See img3.png) After running the script we get an image with the instrunction on how to connect to the internal network.
+![kts](https://user-images.githubusercontent.com/67109334/110940047-5a8c6880-8347-11eb-9145-a3bff40562fa.png)
+
+![kts](https://user-images.githubusercontent.com/67109334/110940183-8dcef780-8347-11eb-80f0-e22d9b207303.png)
+
+![kts](https://user-images.githubusercontent.com/67109334/110940251-a50de500-8347-11eb-8f00-64d13faa5db7.png)
 
 ### SQLi №2
 В ходе тестирования на проникновение «Веселая ферма» смоделировала возможные действия злоумышленника на сайте телецентра “Sirius Game” и выявила возможность проведения атаки типа SQLi. Данная уязвимость даёт злоумышленнику возможность смены пароля любого пользователя, в том числе администратора.
@@ -109,3 +160,11 @@ In future: enforce password policies
 ```
 
 ## Патчи
+
+### XML XXE
+
+Используя такую нагрузку как ```<?xml version="1.0"?><!DOCTYPE root [<!ENTITY test SYSTEM 'file:///etc/passwd'>]><root>&test;</root>```, мы можем читать любой файл на сервере. Но это нельзя сделать через пользовательский интерфейс, поэтому нам придется делать прямой POST-запрос или добавить кнопку на страницу в нашем браузере.
+
+Также мы можем создать скрипт, который автоматически скачивает файлы с сервера и выводит его в консоль.
+
+Патч: изменить параметр в XMLParser.parse() в server.py, который закроет уязвимость
